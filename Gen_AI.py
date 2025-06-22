@@ -1,4 +1,4 @@
-# GenAI Wealth Advisor App using OpenRouter.ai
+# ==== Streamlit GenAI Wealth Advisor App ====
 
 import streamlit as st
 import plotly.express as px
@@ -51,14 +51,7 @@ def explain_portfolio(allocation, age, risk, goal):
     response_json = response.json()
     return response_json["choices"][0]["message"]["content"]
 
-# ========== SIP Calculator ==========
-def calculate_sip(goal_amount, years, annual_return):
-    monthly_rate = (annual_return / 100) / 12
-    months = years * 12
-    sip = goal_amount * monthly_rate / ((1 + monthly_rate) ** months - 1)
-    return round(sip, 2)
-
-# ========== Real-Time Return Estimates ==========
+# ========== CAGR Fetcher ==========
 def fetch_cagr(ticker, years=5):
     end = datetime.now()
     start = end - timedelta(days=years * 365)
@@ -70,8 +63,8 @@ def fetch_cagr(ticker, years=5):
     cagr = ((end_price / start_price) ** (1 / years)) - 1
     return round(cagr * 100, 2)
 
-# ========== PDF Export ==========
-def generate_pdf(name, age, income, risk, goal, allocation, explanation, sip_info=None):
+# ========== PDF Report ==========
+def generate_pdf(name, age, income, risk, goal, allocation, explanation, mip_info=None):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
@@ -90,13 +83,13 @@ def generate_pdf(name, age, income, risk, goal, allocation, explanation, sip_inf
     pdf.ln(10)
     pdf.multi_cell(0, 10, f"Advisor's Explanation:\n{explanation}")
 
-    if sip_info:
+    if mip_info:
         pdf.ln(5)
-        pdf.multi_cell(0, 10, f"\nGoal: ₹{sip_info['amount']} in {sip_info['years']} years.\nMonthly SIP Needed: ₹{sip_info['sip']}")
+        pdf.multi_cell(0, 10, f"\nMonthly Investment Plan:\nInvest ₹{mip_info['monthly']} per month for {mip_info['years']} years at {mip_info['rate']}% expected return.\nFuture Value: ₹{mip_info['future_value']}")
 
     pdf.output("/mnt/data/wealth_report.pdf")
 
-# ========== Main Streamlit App ==========
+# ========== Main App ==========
 st.set_page_config(page_title="GenAI Wealth Advisor", page_icon="💼")
 st.title("💼 GenAI-Based Wealth Advisor Chatbot")
 
@@ -126,14 +119,27 @@ if st.button("🔍 Generate Portfolio"):
     st.markdown("### 📘 Advisor's Explanation")
     st.write(explanation)
 
-    st.subheader("🎯 SIP Calculator")
-    goal_amount = st.number_input("Goal Amount (₹)", value=1000000)
-    goal_years = st.number_input("Years", value=10)
-    expected_return = st.slider("Expected Return (%)", 6.0, 15.0, 12.0)
+    # Monthly Investment Plan
+    st.subheader("📈 Monthly Investment Plan")
+    rate = st.slider("Expected Annual Return (%)", 6.0, 15.0, 12.0)
+    duration_years = st.slider("Investment Duration (Years)", 1, 40, 10)
+    monthly_amount = st.number_input("Monthly Investment Amount (₹)", value=5000)
 
-    sip = calculate_sip(goal_amount, goal_years, expected_return)
-    st.success(f"Invest ₹{sip:,}/month to achieve ₹{goal_amount:,} in {goal_years} years")
+    r = rate / 100 / 12
+    n = duration_years * 12
+    fv = monthly_amount * (((1 + r) ** n - 1) / r)
+    future_value = round(fv)
 
+    st.success(f"Invest ₹{monthly_amount:,}/month for {duration_years} years at {rate}% to get ₹{future_value:,}")
+
+    mip_info = {
+        "monthly": monthly_amount,
+        "years": duration_years,
+        "rate": rate,
+        "future_value": future_value
+    }
+
+    # CAGR
     st.subheader("📉 Real-Time Return Estimates")
     returns = {
         "Equity": fetch_cagr("^NSEI"),
@@ -142,10 +148,12 @@ if st.button("🔍 Generate Portfolio"):
     }
     st.dataframe(pd.DataFrame({"Asset": returns.keys(), "CAGR (%)": returns.values()}))
 
+    # PDF Report
     if st.button("📄 Generate PDF Report"):
-        generate_pdf("User", age, income, risk_tolerance, goal, allocation, explanation, {"amount": goal_amount, "years": goal_years, "sip": sip})
+        generate_pdf("User", age, income, risk_tolerance, goal, allocation, explanation, mip_info)
         st.download_button("📥 Download PDF", open("/mnt/data/wealth_report.pdf", "rb"), "Wealth_Report.pdf")
 
+    # GPT Portfolio Q&A
     st.subheader("💬 Ask About Your Portfolio")
     user_question = st.text_input("Type your question")
     if st.button("Ask GPT"):
@@ -159,3 +167,11 @@ if st.button("🔍 Generate Portfolio"):
         }
         response = requests.post(f"{api_base}/chat/completions", headers=headers, json=payload)
         st.write(response.json()["choices"][0]["message"]["content"])
+
+    # Rating Section
+    st.subheader("⭐ Rate Your Experience")
+    rating = st.selectbox("How would you rate this output?", ["Select", "Excellent", "Good", "Average", "Poor"])
+    if rating != "Select":
+        st.success("🎉 Thank you for your feedback! You may restart the app now.")
+        if st.button("🔄 Restart"):
+            st.experimental_rerun()
