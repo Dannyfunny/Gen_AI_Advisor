@@ -1,5 +1,3 @@
-# ==== Streamlit GenAI Wealth Advisor App ====
-
 import streamlit as st
 import plotly.express as px
 import yfinance as yf
@@ -85,7 +83,11 @@ def generate_pdf(name, age, income, risk, goal, allocation, explanation, mip_inf
 
     if mip_info:
         pdf.ln(5)
-        pdf.multi_cell(0, 10, f"\nMonthly Investment Plan:\nInvest ₹{mip_info['monthly']} per month for {mip_info['years']} years at {mip_info['rate']}% expected return.\nFuture Value: ₹{mip_info['future_value']}")
+        pdf.multi_cell(0, 10, f"\nMonthly Investment Plan:\n"
+                              f"{'Target: ₹' + str(mip_info['future_value']) if mip_info['mode'] == 'goal' else ''}\n"
+                              f"Invest ₹{mip_info['monthly']:,}/month for {mip_info['years']} years "
+                              f"at {mip_info['rate']}% expected return.\n"
+                              f"{'Future Corpus: ₹' + str(mip_info['future_value']) if mip_info['mode'] == 'monthly' else ''}")
 
     pdf.output("/mnt/data/wealth_report.pdf")
 
@@ -119,27 +121,47 @@ if st.button("🔍 Generate Portfolio"):
     st.markdown("### 📘 Advisor's Explanation")
     st.write(explanation)
 
-    # Monthly Investment Plan
+    # ========== Monthly Investment Plan ==========
     st.subheader("📈 Monthly Investment Plan")
+    plan_type = st.radio("Choose Plan Type", ["🎯 I know my goal amount", "💸 I know my monthly investment"])
+
     rate = st.slider("Expected Annual Return (%)", 6.0, 15.0, 12.0)
     duration_years = st.slider("Investment Duration (Years)", 1, 40, 10)
-    monthly_amount = st.number_input("Monthly Investment Amount (₹)", value=5000)
+    monthly_rate = rate / 100 / 12
+    months = duration_years * 12
 
-    r = rate / 100 / 12
-    n = duration_years * 12
-    fv = monthly_amount * (((1 + r) ** n - 1) / r)
-    future_value = round(fv)
+    mip_info = None
 
-    st.success(f"Invest ₹{monthly_amount:,}/month for {duration_years} years at {rate}% to get ₹{future_value:,}")
+    if plan_type == "🎯 I know my goal amount":
+        target_amount = st.number_input("Target Corpus (₹)", value=4500000)
+        try:
+            monthly_investment = target_amount * monthly_rate / ((1 + monthly_rate) ** months - 1)
+            monthly_investment = round(monthly_investment)
+            st.success(f"To reach ₹{target_amount:,} in {duration_years} years at {rate}% return, invest ₹{monthly_investment:,}/month.")
+            mip_info = {
+                "mode": "goal",
+                "monthly": monthly_investment,
+                "years": duration_years,
+                "rate": rate,
+                "future_value": target_amount
+            }
+        except:
+            st.error("Unable to calculate SIP. Please check inputs.")
 
-    mip_info = {
-        "monthly": monthly_amount,
-        "years": duration_years,
-        "rate": rate,
-        "future_value": future_value
-    }
+    else:
+        monthly_amount = st.number_input("Monthly Investment Amount (₹)", value=5000)
+        future_value = monthly_amount * (((1 + monthly_rate) ** months - 1) / monthly_rate)
+        future_value = round(future_value)
+        st.success(f"Invest ₹{monthly_amount:,}/month for {duration_years} years at {rate}% to get ₹{future_value:,}")
+        mip_info = {
+            "mode": "monthly",
+            "monthly": monthly_amount,
+            "years": duration_years,
+            "rate": rate,
+            "future_value": future_value
+        }
 
-    # CAGR
+    # ========== CAGR Estimates ==========
     st.subheader("📉 Real-Time Return Estimates")
     returns = {
         "Equity": fetch_cagr("^NSEI"),
@@ -148,12 +170,12 @@ if st.button("🔍 Generate Portfolio"):
     }
     st.dataframe(pd.DataFrame({"Asset": returns.keys(), "CAGR (%)": returns.values()}))
 
-    # PDF Report
+    # ========== PDF Report ==========
     if st.button("📄 Generate PDF Report"):
         generate_pdf("User", age, income, risk_tolerance, goal, allocation, explanation, mip_info)
         st.download_button("📥 Download PDF", open("/mnt/data/wealth_report.pdf", "rb"), "Wealth_Report.pdf")
 
-    # GPT Portfolio Q&A
+    # ========== GPT Q&A ==========
     st.subheader("💬 Ask About Your Portfolio")
     user_question = st.text_input("Type your question")
     if st.button("Ask GPT"):
@@ -168,7 +190,7 @@ if st.button("🔍 Generate Portfolio"):
         response = requests.post(f"{api_base}/chat/completions", headers=headers, json=payload)
         st.write(response.json()["choices"][0]["message"]["content"])
 
-    # Rating Section
+    # ========== Feedback ==========
     st.subheader("⭐ Rate Your Experience")
     rating = st.selectbox("How would you rate this output?", ["Select", "Excellent", "Good", "Average", "Poor"])
     if rating != "Select":
